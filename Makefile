@@ -1,7 +1,7 @@
 CFLAGS = -O3
 
 minecraft: main.c minecraft.o
-	cc $(CFLAGS) $^ -o $@ -lSDL2
+	cc $(CFLAGS) $^ -o $@ -lSDL2 -lm
 
 minecraft.o: minecraft.c
 	cc $(CFLAGS) -c $< -o $@

@@ -13,7 +13,7 @@ void MC_sleepMillis(uint32_t ms) { SDL_Delay(ms); }
 uint32_t MC_currentTimeMillis(void) { return SDL_GetTicks(); }
 void MC_init(void);
 void MC_run(void);
-void MC_handleEvent(void);
+void MC_handleEvent(int id, int key, int x, int y, int modifiers);
 
 int main(int argc, char **argv) {
   SDL_Window *window = SDL_CreateWindow("Minecraft 4k",
@@ -49,17 +49,35 @@ int main(int argc, char **argv) {
     SDL_RenderCopy(renderer, texture, NULL, NULL);
     SDL_RenderPresent(renderer);
 
+    
+
+
+
+
+    int id = 0, key = 0, x = 0, y = 0, modifiers = 0;
+    SDL_GetMouseState(&x, &y);
     while (SDL_PollEvent(&e)) {
       if (e.type == SDL_QUIT) {
         windowShouldClose = true;
       }
       if (e.type == SDL_KEYDOWN) {
-        puts("keydown");
-      } else if (e.type == SDL_KEYUP) {
-        puts("keyup");
+        id = 401;
+        key = e.key.keysym.sym; // this shit makes it crash sometimes lmao
       }
+      else if (e.type == SDL_KEYUP) {
+        id = 402;
+        key = e.key.keysym.sym;
+      }
+
+      if (e.type == SDL_MOUSEBUTTONDOWN)
+        id = 501;
+      else if (e.type == SDL_MOUSEBUTTONUP)
+        id = 502;
+
+      if (e.button.button == SDL_BUTTON_RIGHT)
+        modifiers |= 4;
     }
-    MC_handleEvent();
+    MC_handleEvent(id, key, x, y, modifiers);
   }
 
   SDL_DestroyTexture(texture);
