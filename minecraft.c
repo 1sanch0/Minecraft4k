@@ -15,7 +15,6 @@
 
 extern uint32_t MC_framebuffer[MC_WIDTH * MC_HEIGHT];
 
-void MC_sleepMillis(uint32_t ms);
 uint32_t MC_currentTimeMillis(void);
 
 
@@ -48,29 +47,40 @@ int nextInt(int bound) {
   return val;
 }
 
+#ifndef M_PI
+#define M_PI 3.1415926535897932384626433832
+#endif
+#define DEGREES (M_PI / 180.0)
 
+#define DEAD_ZONE_RADIUS 1.2f
 
 struct {
   int M[32767];
 } this;
 
-int arrayOfInt2[262144];
-int arrayOfInt3[12288];
-long l; 
+static float pos_x = 96.5f, pos_y = 65.0f, pos_z = 96.5f;
+static float acc_x = 0.0f, acc_y = 0.0f, acc_z = 0.0f;
+static float yaw = 0.0f, pitch = 0.0f;
+
+static int mouse_x, mouse_y;
+
+static int world[64*64*64];
+static int sprites[16*16*48];
+static long l; 
+
+void MC_destroy() {
+}
 
 void MC_init(void) {
   setSeed(18295169L);
 
-  for (int i = 0; i < 262144; i++)
-    arrayOfInt2[i] = i / 64 % 64 > 32 + nextInt(8) ? nextInt(8) + 1 : 0;
+  for (int i = 0; i < 64*64*64; i++)
+    world[i] = i / 64 % 64 > 32 + nextInt(8) ? nextInt(8) + 1 : 0;
   
-  int j = 1;
-  while (j < 16) {
+  for (int j = 1; j < 16; j++) {
     int k = 255 - nextInt(96);
-    int m = 0;
-    while (m < 48) {
-      int n = 0;
-      while (n < 16) {
+    for (int v = 0; v < 48; v++) {
+      for (int u = 0; u < 16; u++) {
         int i3;
         int i2;
         int i1 = 9858122;
@@ -80,17 +90,17 @@ void MC_init(void) {
         if (j != 4 || nextInt(3) == 0) {
           k = 255 - nextInt(96);
         }
-        if (j == 1 && m < (n * n * 3 + n * 81 >> 2 & 3) + 18) {
+        if (j == 1 && v < (u * u * 3 + u * 81 >> 2 & 3) + 18) {
           i1 = 6990400;
-        } else if (j == 1 && m < (n * n * 3 + n * 81 >> 2 & 3) + 19) {
+        } else if (j == 1 && v < (u * u * 3 + u * 81 >> 2 & 3) + 19) {
           k = k * 2 / 3;
         }
         if (j == 7) {
           i1 = 6771249;
-          if (n > 0 && n < 15 && (m > 0 && m < 15 || m > 32 && m < 47)) {
+          if (u > 0 && u < 15 && (v > 0 && v < 15 || v > 32 && v < 47)) {
             i1 = 12359778;
-            i2 = n - 7;
-            i3 = (m & 0xF) - 7;
+            i2 = u - 7;
+            i3 = (v & 0xF) - 7;
             if (i2 < 0) {
                 i2 = 1 - i2;
             }
@@ -102,17 +112,17 @@ void MC_init(void) {
             }
             k = 196 - nextInt(32) + i2 % 3 * 32;
           } else if (nextInt(2) == 0) {
-            k = k * (150 - (n & 1) * 100) / 100;
+            k = k * (150 - (u & 1) * 100) / 100;
           }
         }
         if (j == 5) {
           i1 = 11876885;
-          if ((n + m / 4 * 4) % 8 == 0 || m % 4 == 0) {
+          if ((u + v / 4 * 4) % 8 == 0 || v % 4 == 0) {
             i1 = 12365733;
           }
         }
         i2 = k;
-        if (m >= 32) {
+        if (v >= 32) {
           i2 /= 2;
         }
         if (j == 8) {
@@ -122,222 +132,184 @@ void MC_init(void) {
             i2 = 255;
           }
         }
-        arrayOfInt3[n + m * 16 + j * 256 * 3] = i3 = (i1 >> 16 & 0xFF) * i2 / 255 << 16 | (i1 >> 8 & 0xFF) * i2 / 255 << 8 | (i1 & 0xFF) * i2 / 255;
-        ++n;
+        sprites[u + v * 16 + j * 256 * 3] = (i1 >> 16 & 0xFF) * i2 / 255 << 16 | (i1 >> 8 & 0xFF) * i2 / 255 << 8 | (i1 & 0xFF) * i2 / 255;
       }
-      ++m;
     }
-    ++j;
   }
 
   l = MC_currentTimeMillis();
 }
 
-float f1 = 96.5f;
-float f2 = 65.0f;
-float f3 = 96.5f;
-float f4 = 0.0f;
-float f5 = 0.0f;
-float f6 = 0.0f;
-int i4 = -1;
-int i5 = 0;
-float f7 = 0.0f;
-float f8 = 0.0f;
+int block_lookat_idx = -1;
+int lookat_closer_offset = 0;
 
 void MC_run(void) {
-  int j;
-  float f9 = (float)sin(f7);
-  float f10 = (float)cos(f7);
-  float f11 = (float)sin(f8);
-  float f12 = (float)cos(f8);
-
   block7:
     while (MC_currentTimeMillis() - l > 10L) {
-      float f14;
-      float f13;
-      if (this.M[2] > 0) {
-          f13 = (float)(this.M[2] - 428) / 214.0f * 2.0f;
-          f14 = (float)(this.M[3] - 240) / 120.0f * 2.0f;
-          float f15 = (float)sqrt(f13 * f13 + f14 * f14) - 1.2f;
-          if (f15 < 0.0f) {
-              f15 = 0.0f;
-          }
-          if (f15 > 0.0f) {
-              f7 += f13 * f15 / 400.0f;
-              if ((f8 -= f14 * f15 / 400.0f) < -1.57f) {
-                  f8 = -1.57f;
-              }
-              if (f8 > 1.57f) {
-                  f8 = 1.57f;
-              }
-          }
+      if (mouse_x > 0) {
+        float dx = (mouse_x - 2*MC_WIDTH) / (float)MC_WIDTH * 2.0f;
+        float dy = (mouse_y - 2*MC_HEIGHT) / (float)MC_HEIGHT * 2.0f;
+
+        float d = sqrtf(dx * dx + dy * dy) - DEAD_ZONE_RADIUS;
+
+        if (d > 0.0f) {
+          yaw   += dx * d / 400.0f;
+          pitch -= dy * d / 400.0f;
+          if (pitch < -90*DEGREES) pitch = -90*DEGREES;
+          if (pitch >  90*DEGREES) pitch =  90*DEGREES;
+        }
       }
+
       l += 10L;
-      f13 = 0.0f;
-      f14 = 0.0f;
-      f4 *= 0.5f;
-      f5 *= 0.99f;
-      f6 *= 0.5f;
-      f4 += f9 * (f14 += (float)(this.M[119] - this.M[115]) * 0.02f) + f10 * (f13 += (float)(this.M[100] - this.M[97]) * 0.02f);
-      f6 += f10 * f14 - f9 * f13;
-      f5 += 0.003f;
-      int i8 = 0;
-      while (i8 < 3) {
-          float f16 = f1 + f4 * (float)((i8 + 0) % 3 / 2);
-          float f17 = f2 + f5 * (float)((i8 + 1) % 3 / 2);
-          float f19 = f3 + f6 * (float)((i8 + 2) % 3 / 2);
-          int i12 = 0;
-          while (i12 < 12) {
-              int i13 = (int)(f16 + (float)(i12 >> 0 & 1) * 0.6f - 0.3f) - 64;
-              int i14 = (int)(f17 + (float)((i12 >> 2) - 1) * 0.8f + 0.65f) - 64;
-              int i15 = (int)(f19 + (float)(i12 >> 1 & 1) * 0.6f - 0.3f) - 64;
-              if (i13 < 0 || i14 < 0 || i15 < 0 || i13 >= 64 || i14 >= 64 || i15 >= 64 || arrayOfInt2[i13 + i14 * 64 + i15 * 4096] > 0) {
-                  if (i8 != 1) goto block7;//continue block7;
-                  if (this.M[32] > 0 && f5 > 0.0f) {
-                      this.M[32] = 0;
-                      f5 = -0.1f;
-                      goto block7;// continue block7;
-                  }
-                  f5 = 0.0f;
-                  goto block7;// continue block7;
-              }
-              ++i12;
+      acc_x *= 0.5f;
+      acc_y *= 0.99f;
+      acc_z *= 0.5f;
+      float right = (float)(this.M['d'] - this.M['a']) * 0.02f;
+      float left = (float)(this.M['w'] - this.M['s']) * 0.02f;
+      acc_x += sinf(yaw) * left + cosf(yaw) * right;
+      acc_z += cosf(yaw) * left - sinf(yaw) * right;
+      acc_y += 0.003f;
+
+      for (int dim = 0; dim < 3; dim++) {
+        float next_x = pos_x + acc_x * (float)(((dim + 0) % 3) / 2);
+        float next_y = pos_y + acc_y * (float)(((dim + 1) % 3) / 2);
+        float next_z = pos_z + acc_z * (float)(((dim + 2) % 3) / 2);
+        for (int m = 0; m < 12; m++) { // Iter lower 2 layers
+          int x = (int)(next_x + (float)(m >> 0 & 1) * 0.6f - 0.3f) - 64;
+          int y = (int)(next_y + (float)((m >> 2) - 1) * 0.8f + 0.65f) - 64;
+          int z = (int)(next_z + (float)(m >> 1 & 1) * 0.6f - 0.3f) - 64;
+          if ( x < 0   || y < 0   || z < 0
+            || x >= 64 || y >= 64 || z >= 64
+            || world[x + y * 64 + z * 4096] > 0) {
+            if (dim != 1) goto block7;
+            if (this.M[' '] > 0 && acc_y > 0.0f) {
+              this.M[' '] = 0;
+              acc_y = -0.1f;
+              goto block7;
+            }
+            acc_y = 0.0f;
+            goto block7;
           }
-          f1 = f16;
-          f2 = f17;
-          f3 = f19;
-          ++i8;
+        }
+        pos_x = next_x;
+        pos_y = next_y;
+        pos_z = next_z;
       }
-  }
-  int i6 = 0;
-  int i7 = 0;
-  if (this.M[1] > 0 && i4 > 0) {
-    arrayOfInt2[i4] = 0;
+    }
+
+
+
+  
+
+  if (this.M[1] > 0 && block_lookat_idx > 0) {
+    world[block_lookat_idx] = 0;
     this.M[1] = 0;
   }
-  if (this.M[0] > 0 && i4 > 0) {
-    arrayOfInt2[i4 + i5] = 1;
+  if (this.M[0] > 0 && block_lookat_idx > 0) {
+    world[block_lookat_idx + lookat_closer_offset] = 1;
     this.M[0] = 0;
   }
-  int i8 = 0;
-  while (i8 < 12) {
-    int i9 = (int)(f1 + (float)(i8 >> 0 & 1) * 0.6f - 0.3f) - 64;
-    int i10 = (int)(f2 + (float)((i8 >> 2) - 1) * 0.8f + 0.65f) - 64;
-    j = (int)(f3 + (float)(i8 >> 1 & 1) * 0.6f - 0.3f) - 64;
-    if (i9 >= 0 && i10 >= 0 && j >= 0 && i9 < 64 && i10 < 64 && j < 64) {
-      arrayOfInt2[i9 + i10 * 64 + j * 4096] = 0;
+  for (int m = 0; m < 12; m++) { // Iter lower 2 layers
+    int x = (int)(pos_x + (float)(m >> 0 & 1) * 0.6f - 0.3f) - 64;
+    int y = (int)(pos_y + (float)((m >> 2) - 1) * 0.8f + 0.65f) - 64;
+    int z = (int)(pos_z + (float)(m >> 1 & 1) * 0.6f - 0.3f) - 64;
+    if (x >= 0 && y >= 0 && z >= 0 && x < 64 && y < 64 && z < 64) {
+      world[x + y * 64 + z * 4096] = 0;
     }
-    ++i8;
   }
+  
+  int u = 0;
+  int v = 0;
   float i27 = -1.0f;
-  int i = 0;
-  while (i < MC_WIDTH) {
-      float x = (float)(i - (MC_WIDTH / 2)) / 90.0f;
-      j = 0;
-      while (j < MC_HEIGHT) {
-          float y = (float)(j - (MC_HEIGHT / 2)) / 90.0f;
-          float f21 = 1.0f;
-          float f22 = f21 * f12 + y * f11;
-          float f23 = y * f12 - f21 * f11;
-          float f24 = x * f10 + f22 * f9;
-          float f25 = f22 * f10 - x * f9;
+  for (int i = 0; i < MC_WIDTH; i++) {
+    float x = (float)(i - (MC_WIDTH / 2)) / 90.0f;
+    for (int j = 0; j < MC_HEIGHT; j++) {
+      float y = (float)(j - (MC_HEIGHT / 2)) / 90.0f;
 
-          int i16 = 0;
-          int i17 = 255;
-          double d = 20.0;
-          float f26 = 5.0f;
-          int red = 0;
-          while (red < 3) {
-              float f27 = f24;
-              if (red == 1) {
-                f27 = f23;
-              }
-              if (red == 2) {
-                f27 = f25;
-              }
-              float f28 = 1.0f / (f27 < 0.0f ? -f27 : f27);
-              float f29 = f24 * f28;
-              float f30 = f23 * f28;
-              float f31 = f25 * f28;
-              float f32 = f1 - (float)((int)f1);
-              if (red == 1) {
-                f32 = f2 - (float)((int)f2);
-              }
-              if (red == 2) {
-                f32 = f3 - (float)((int)f3);
-              }
-              if (f27 > 0.0f) {
-                f32 = 1.0f - f32;
-              }
-              float f33 = f28 * f32;
-              float f34 = f1 + f29 * f32;
-              float f35 = f2 + f30 * f32;
-              float f36 = f3 + f31 * f32;
-              if (f27 < 0.0f) {
-                if (red == 0) {
-                  f34 -= 1.0f;
-                }
-                if (red == 1) {
-                  f35 -= 1.0f;
-                }
-                if (red == 2) {
-                  f36 -= 1.0f;
-                }
-              }
-              while ((double)f33 < d) {
-                  int i21 = (int)f34 - 64;
-                  int i22 = (int)f35 - 64;
-                  int i23 = (int)f36 - 64;
-                  if (i21 < 0 || i22 < 0 || i23 < 0 || i21 >= 64 || i22 >= 64 || i23 >= 64) break;
-                  int i24 = i21 + i22 * 64 + i23 * 4096;
-                  int i25 = arrayOfInt2[i24];
-                  if (i25 > 0) {
-                      i6 = (int)((f34 + f36) * 16.0f) & 0xF;
-                      i7 = ((int)(f35 * 16.0f) & 0xF) + 16;
-                      if (red == 1) {
-                          i6 = (int)(f34 * 16.0f) & 0xF;
-                          i7 = (int)(f36 * 16.0f) & 0xF;
-                          if (f30 < 0.0f) {
-                              i7 += 32;
-                          }
-                      }
-                      int i26 = 0xFFFFFF;
-                      if (i24 != i4 || i6 > 0 && i7 % 16 > 0 && i6 < 15 && i7 % 16 < 15) {
-                          i26 = arrayOfInt3[i6 + i7 * 16 + i25 * 256 * 3];
-                      }
-                      if (f33 < f26 && i == this.M[2] / 4 && j == this.M[3] / 4) {
-                          i27 = i24;
-                          i5 = 1;
-                          if (f27 > 0.0f) {
-                              i5 = -1;
-                          }
-                          i5 <<= 6 * red;
-                          f26 = f33;
-                      }
-                      if (i26 > 0) {
-                          i16 = i26;
-                          i17 = 255 - (int)(f33 / 20.0f * 255.0f);
-                          i17 = i17 * (255 - (red + 2) % 3 * 50) / 255;
-                          d = f33;
-                      }
-                  }
-                  f34 += f29;
-                  f35 += f30;
-                  f36 += f31;
-                  f33 += f28;
-              }
-              ++red;
+      float t = 1.0f * cosf(pitch) + y * sinf(pitch);
+      float ray_dir_x = x * cosf(yaw) + t * sinf(yaw);
+      float ray_dir_y = y * cosf(pitch) - 1.0f * sinf(pitch);
+      float ray_dir_z = t * cosf(yaw) - x * sinf(yaw);
+
+      int px_color = 0;
+      int fog = 255;
+      double d = 20.0;
+      float outline_distance = 5.0f;
+      for (int dim = 0; dim < 3; dim++) {
+        float         dim_component = ray_dir_x;
+        if (dim == 1) dim_component = ray_dir_y;
+        if (dim == 2) dim_component = ray_dir_z;
+
+        float dim_norm = 1.0f / (dim_component < 0.0f ? -dim_component : dim_component);
+        float dx = ray_dir_x * dim_norm;
+        float dy = ray_dir_y * dim_norm;
+        float dz = ray_dir_z * dim_norm;
+
+        float         fract = pos_x - (float)((int)pos_x);
+        if (dim == 1) fract = pos_y - (float)((int)pos_y);
+        if (dim == 2) fract = pos_z - (float)((int)pos_z);
+        if (dim_component > 0.0f)
+          fract = 1.0f - fract;
+
+        float step = dim_norm * fract;
+        float look_block_x = pos_x + dx * fract;
+        float look_block_y = pos_y + dy * fract;
+        float look_block_z = pos_z + dz * fract;
+        if (dim_component < 0.0f) {
+          if (dim == 0) look_block_x -= 1.0f;
+          if (dim == 1) look_block_y -= 1.0f;
+          if (dim == 2) look_block_z -= 1.0f;
+        }
+        while ((double)step < d) {
+          int idx_x = (int)look_block_x - 64;
+          int idx_y = (int)look_block_y - 64;
+          int idx_z = (int)look_block_z - 64;
+          if (idx_x < 0 || idx_y < 0 || idx_z < 0 || idx_x >= 64 || idx_y >= 64 || idx_z >= 64)
+            break;
+          int looking_block_idx = idx_x + idx_y * 64 + idx_z * 4096;
+          int block_id = world[looking_block_idx];
+          if (block_id > 0) {
+            u = (int)((look_block_x + look_block_z) * 16.0f) & 0xF;
+            v = ((int)(look_block_y * 16.0f) & 0xF) + 16;
+            if (dim == 1) {
+              u = (int)(look_block_x * 16.0f) & 0xF;
+              v = (int)(look_block_z * 16.0f) & 0xF;
+              if (dy < 0.0f)
+                v += 32;
+            }
+            int color = 0xFFFFFF;
+            if (looking_block_idx != block_lookat_idx || u > 0 && v % 16 > 0 && u < 15 && v % 16 < 15) {
+              color = sprites[u + v * 16 + block_id * 256 * 3];
+            }
+            // Draws outline
+            if (step < outline_distance && i == mouse_x / 4 && j == mouse_y / 4) {
+              i27 = looking_block_idx;
+              lookat_closer_offset = 1;
+              if (dim_component > 0.0f)
+                lookat_closer_offset = -1;
+              lookat_closer_offset <<= 6 * dim;
+              outline_distance = step;
+            }
+            if (color > 0) {
+              px_color = color;
+              fog = 255 - (int)(step / 20.0f * 255.0f);
+              fog = fog * (255 - (dim + 2) % 3 * 50) / 255;
+              d = step;
+            }
           }
-          red = (i16 >> 16 & 0xFF) * i17 / 255;
-          int green = (i16 >> 8 & 0xFF) * i17 / 255;
-          int blue = (i16 & 0xFF) * i17 / 255;
-          MC_framebuffer[i + j * MC_WIDTH] = red << 16 | green << 8 | blue;
-          ++j;
+          look_block_x += dx;
+          look_block_y += dy;
+          look_block_z += dz;
+          step += dim_norm;
+        }
       }
-      ++i;
+      int red = (px_color >> 16 & 0xFF) * fog / 255;
+      int green = (px_color >> 8 & 0xFF) * fog / 255;
+      int blue = (px_color & 0xFF) * fog / 255;
+      MC_framebuffer[j * MC_WIDTH + i] = red << 16 | green << 8 | blue;
+    }
   }
-  i4 = (int)i27;
-  MC_sleepMillis(2);
+  block_lookat_idx = (int)i27;
 }
 
 void MC_handleEvent(int id, int key, int x, int y, int modifiers) {
@@ -348,8 +320,8 @@ void MC_handleEvent(int id, int key, int x, int y, int modifiers) {
     case 402: this.M[key] = i;  // KEY_RELEASE
               break;
     case 501: i = 1;            // MOUSE_DOWN
-              this.M[2] = x;
-              this.M[3] = y;
+              mouse_x = x;
+              mouse_y = y;
     case 502: {                 // MOUSE_UP
       if ((modifiers & 4) > 0) {// META_MASK??? right button pressed or released
         this.M[1] = i;
@@ -359,10 +331,10 @@ void MC_handleEvent(int id, int key, int x, int y, int modifiers) {
       break;
     }
     case 503:                   // MOUSE_MOVE
-    case 506: this.M[2] = x;    // MOUSE_DRAG
-              this.M[3] = y;
+    case 506: mouse_x = x;      // MOUSE_DRAG
+              mouse_y = y;
               break;
 
-    case 505: this.M[2] = 0;    // MOUSE_EXIT
+    case 505: mouse_x = 0;    // MOUSE_EXIT
   }
 }

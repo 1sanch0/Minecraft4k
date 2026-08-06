@@ -9,13 +9,16 @@
 #define MC_HEIGHT 120
 
 uint32_t MC_framebuffer[MC_WIDTH * MC_HEIGHT];
-void MC_sleepMillis(uint32_t ms) { SDL_Delay(ms); }
 uint32_t MC_currentTimeMillis(void) { return SDL_GetTicks(); }
+
 void MC_init(void);
+void MC_destroy(void);
 void MC_run(void);
 void MC_handleEvent(int id, int key, int x, int y, int modifiers);
 
 int main(int argc, char **argv) {
+  (void)argc; (void)argv;
+
   SDL_Window *window = SDL_CreateWindow("Minecraft 4k",
                                         SDL_WINDOWPOS_UNDEFINED,
                                         SDL_WINDOWPOS_UNDEFINED,
@@ -36,7 +39,11 @@ int main(int argc, char **argv) {
   SDL_Event e;
   bool windowShouldClose = false;
   while (!windowShouldClose) {
+    uint32_t t0 = MC_currentTimeMillis();
     MC_run();
+    SDL_Delay(2);
+    uint32_t millis = MC_currentTimeMillis() - t0;
+    // printf("Millis on run: %d\n", millis);
 
     { void *pixels; int pitch;
       SDL_LockTexture(texture, NULL, &pixels, &pitch);
@@ -62,7 +69,7 @@ int main(int argc, char **argv) {
       }
       if (e.type == SDL_KEYDOWN) {
         id = 401;
-        key = e.key.keysym.sym; // this shit makes it crash sometimes lmao
+        key = e.key.keysym.sym;
       }
       else if (e.type == SDL_KEYUP) {
         id = 402;
@@ -77,8 +84,11 @@ int main(int argc, char **argv) {
       if (e.button.button == SDL_BUTTON_RIGHT)
         modifiers |= 4;
     }
+    key = key < 1000 ? key : 0;
     MC_handleEvent(id, key, x, y, modifiers);
   }
+
+  MC_destroy();
 
   SDL_DestroyTexture(texture);
   SDL_DestroyRenderer(renderer);
