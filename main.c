@@ -8,13 +8,14 @@
 #define MC_WIDTH 214 
 #define MC_HEIGHT 120
 
-uint32_t MC_framebuffer[MC_WIDTH * MC_HEIGHT];
-uint32_t MC_currentTimeMillis(void) { return SDL_GetTicks(); }
+extern uint32_t MC_framebuffer[MC_WIDTH * MC_HEIGHT];
 
 void MC_init(void);
 void MC_destroy(void);
-void MC_run(void);
-void MC_handleEvent(int id, int key, int x, int y, int modifiers);
+void MC_run(float dt);
+void MC_handleKeyboard(int down, int key);
+void MC_handleMouse(int down, int left, int right);
+void MC_handleMousePos(int x, int y);
 
 int main(int argc, char **argv) {
   (void)argc; (void)argv;
@@ -35,15 +36,16 @@ int main(int argc, char **argv) {
                                            MC_WIDTH, MC_HEIGHT);
 
   MC_init(); 
-  
+
+  uint64_t last_ticks = SDL_GetTicks64();
+
   SDL_Event e;
+  bool windowIsFocused = false;
   bool windowShouldClose = false;
   while (!windowShouldClose) {
-    uint32_t t0 = MC_currentTimeMillis();
-    MC_run();
-    SDL_Delay(2);
-    uint32_t millis = MC_currentTimeMillis() - t0;
-    // printf("Millis on run: %d\n", millis);
+    uint64_t ticks = SDL_GetTicks64();
+    MC_run(ticks - last_ticks);
+    last_ticks = ticks;
 
     { void *pixels; int pitch;
       SDL_LockTexture(texture, NULL, &pixels, &pitch);
@@ -59,33 +61,36 @@ int main(int argc, char **argv) {
     
 
 
-
-
-    int id = 0, key = 0, x = 0, y = 0, modifiers = 0;
+    int x, y;
     SDL_GetMouseState(&x, &y);
     while (SDL_PollEvent(&e)) {
-      if (e.type == SDL_QUIT) {
+      if (e.type == SDL_QUIT)
         windowShouldClose = true;
-      }
+
       if (e.type == SDL_KEYDOWN) {
-        id = 401;
-        key = e.key.keysym.sym;
-      }
-      else if (e.type == SDL_KEYUP) {
-        id = 402;
-        key = e.key.keysym.sym;
+        MC_handleKeyboard(true, e.key.keysym.sym);
+        if (e.key.keysym.sym == SDLK_ESCAPE) {
+          SDL_SetWindowGrab(window, SDL_FALSE);
+          SDL_ShowCursor(SDL_ENABLE);
+          windowIsFocused = false;
+        }
+      } else if (e.type == SDL_KEYUP)
+        MC_handleKeyboard(false, e.key.keysym.sym);
+
+
+      bool right_click = e.button.button == SDL_BUTTON_RIGHT;
+      bool left_click = e.button.button == SDL_BUTTON_LEFT;
+      bool mouse_down = e.type == SDL_MOUSEBUTTONDOWN;
+
+      if (e.type == SDL_MOUSEBUTTONDOWN) {
+        SDL_SetWindowGrab(window, SDL_TRUE);
+        SDL_ShowCursor(SDL_DISABLE);
+        windowIsFocused = true;
       }
 
-      if (e.type == SDL_MOUSEBUTTONDOWN)
-        id = 501;
-      else if (e.type == SDL_MOUSEBUTTONUP)
-        id = 502;
-
-      if (e.button.button == SDL_BUTTON_RIGHT)
-        modifiers |= 4;
+      MC_handleMouse(mouse_down, left_click, right_click);
     }
-    key = key < 1000 ? key : 0;
-    MC_handleEvent(id, key, x, y, modifiers);
+    if (windowIsFocused) MC_handleMousePos(x, y);
   }
 
   MC_destroy();

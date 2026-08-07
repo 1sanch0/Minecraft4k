@@ -1,5 +1,6 @@
 CFLAGS = -O3
-CFLAGS = -fsanitize=address -fsanitize=undefined
+CFLAGS += -g
+CFLAGS += -fsanitize=address -fsanitize=undefined
 CFLAGS += -Wall -Wextra -Wcast-qual -Wcast-align
 CFLAGS += -Wpedantic
 
