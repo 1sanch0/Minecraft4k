@@ -11,5 +11,8 @@ minecraft.o: minecraft.c
 	cc $(CFLAGS) -c $< -o $@
 	@echo "Size: $$(stat -c%s $@) B"
 
+docs/minecraft.js: main.c minecraft.c
+	emcc $(CFLAGS) -sUSE_SDL=2 $^ -o $@
+
 clean:
 	rm minecraft.o minecraft
