@@ -180,8 +180,82 @@ void MC_destroy(void) {
   free(sprites);
 }
 
-static
-void render(void) {
+void MC_update(void) {
+  if (mouse_x || mouse_y) {
+    float dx = (mouse_x - 2*MC_WIDTH) / (float)MC_WIDTH * 2.0f;
+    float dy = (mouse_y - 2*MC_HEIGHT) / (float)MC_HEIGHT * 2.0f;
+
+    float d = sqrtf(dx * dx + dy * dy) - DEAD_ZONE_RADIUS;
+
+    if (d > 0.0f) {
+      yaw   += dx * d / 400.0f;
+      pitch -= dy * d / 400.0f;
+      if (pitch < -90*DEGREES) pitch = -90*DEGREES;
+      if (pitch >  90*DEGREES) pitch =  90*DEGREES;
+    }
+  }
+
+  float right = (float)(keyboard['d'] - keyboard['a']) * SPEED;
+  float left  = (float)(keyboard['w'] - keyboard['s']) * SPEED;
+
+  acc.x += sinf(yaw) * left + cosf(yaw) * right;
+  acc.z += cosf(yaw) * left - sinf(yaw) * right;
+  acc.y += GRAVITY;
+
+  acc.x *= HFRICTION;
+  acc.z *= HFRICTION;
+  acc.y *= VFRICTION;
+
+  for (int dim = 0; dim < 3; dim++) {
+    float next_x = pos.x + acc.x * (((dim + 0) % 3) / 2);
+    float next_y = pos.y + acc.y * (((dim + 1) % 3) / 2);
+    float next_z = pos.z + acc.z * (((dim + 2) % 3) / 2);
+    for (int m = 0; m < 12; m++) {
+      int idx_x = (next_x + (m >> 0 & 1) * 0.6f - 0.3f) - WORLD_SIZE;
+      int idx_z = (next_z + (m >> 1 & 1) * 0.6f - 0.3f) - WORLD_SIZE;
+      int idx_y = (next_y + ((m >> 2) - 1) * 0.8f + 0.65f) - WORLD_SIZE;
+      if ( idx_x < 0 || idx_x >= WORLD_SIZE
+        || idx_y < 0 || idx_y >= WORLD_SIZE
+        || idx_z < 0 || idx_z >= WORLD_SIZE
+        || world[GET_BLOCK_IDX(idx_x, idx_y, idx_z)] > 0) {
+        if (dim != 1)
+          goto end;
+        if (keyboard[' '] > 0 && acc.y > 0.0f) {
+          keyboard[' '] = 0;
+          acc.y = -JUMP_STRENGH;
+          goto end;
+        }
+        acc.y = 0.0f;
+        goto end;
+      }
+    }
+    pos.x = next_x;
+    pos.y = next_y;
+    pos.z = next_z;
+    end:
+  }
+
+  if (mouse_left > 0 && lookat_block_idx > 0) {
+    world[lookat_block_idx] = 0;
+    mouse_left = 0;
+  }
+  if (mouse_right > 0 && lookat_block_idx > 0) {
+    world[lookat_block_idx + lookat_closer_offset] = 1;
+    mouse_right = 0;
+  }
+  for (int m = 0; m < 12; m++) {
+    int idx_x = (pos.x + (m >> 0 & 1) * 0.6f - 0.3f) - WORLD_SIZE;
+    int idx_y = (pos.y + ((m >> 2) - 1) * 0.8f + 0.65f) - WORLD_SIZE;
+    int idx_z = (pos.z + (m >> 1 & 1) * 0.6f - 0.3f) - WORLD_SIZE;
+    if ( idx_x >= 0 && idx_x < WORLD_SIZE
+      && idx_y >= 0 && idx_y < WORLD_SIZE
+      && idx_z >= 0 && idx_z < WORLD_SIZE) {
+      world[GET_BLOCK_IDX(idx_x, idx_y, idx_z)] = 0;
+    }
+  }
+}
+
+void MC_render(void) {
   int u = 0, v = 0;
   int lookat_idx_temp = -1;
   for (int i = 0; i < MC_WIDTH; i++) {
@@ -278,82 +352,6 @@ void render(void) {
   lookat_block_idx = lookat_idx_temp;
 }
 
-void MC_run(float dt) {
-  if (mouse_x || mouse_y) {
-    float dx = (mouse_x - 2*MC_WIDTH) / (float)MC_WIDTH * 2.0f;
-    float dy = (mouse_y - 2*MC_HEIGHT) / (float)MC_HEIGHT * 2.0f;
-
-    float d = sqrtf(dx * dx + dy * dy) - DEAD_ZONE_RADIUS;
-
-    if (d > 0.0f) {
-      yaw   += dx * d / 400.0f;
-      pitch -= dy * d / 400.0f;
-      if (pitch < -90*DEGREES) pitch = -90*DEGREES;
-      if (pitch >  90*DEGREES) pitch =  90*DEGREES;
-    }
-  }
-
-  float right = (float)(keyboard['d'] - keyboard['a']) * SPEED;
-  float left  = (float)(keyboard['w'] - keyboard['s']) * SPEED;
-
-  acc.x += sinf(yaw) * left + cosf(yaw) * right;
-  acc.z += cosf(yaw) * left - sinf(yaw) * right;
-  acc.y += GRAVITY;
-
-  acc.x *= HFRICTION;
-  acc.z *= HFRICTION;
-  acc.y *= VFRICTION;
-
-  for (int dim = 0; dim < 3; dim++) {
-    float next_x = pos.x + acc.x * (((dim + 0) % 3) / 2);
-    float next_y = pos.y + acc.y * (((dim + 1) % 3) / 2);
-    float next_z = pos.z + acc.z * (((dim + 2) % 3) / 2);
-    for (int m = 0; m < 12; m++) {
-      int idx_x = (next_x + (m >> 0 & 1) * 0.6f - 0.3f) - WORLD_SIZE;
-      int idx_z = (next_z + (m >> 1 & 1) * 0.6f - 0.3f) - WORLD_SIZE;
-      int idx_y = (next_y + ((m >> 2) - 1) * 0.8f + 0.65f) - WORLD_SIZE;
-      if ( idx_x < 0 || idx_x >= WORLD_SIZE
-        || idx_y < 0 || idx_y >= WORLD_SIZE
-        || idx_z < 0 || idx_z >= WORLD_SIZE
-        || world[GET_BLOCK_IDX(idx_x, idx_y, idx_z)] > 0) {
-        if (dim != 1)
-          goto end;
-        if (keyboard[' '] > 0 && acc.y > 0.0f) {
-          keyboard[' '] = 0;
-          acc.y = -JUMP_STRENGH;
-          goto end;
-        }
-        acc.y = 0.0f;
-        goto end;
-      }
-    }
-    pos.x = next_x;
-    pos.y = next_y;
-    pos.z = next_z;
-    end:
-  }
-
-  if (mouse_left > 0 && lookat_block_idx > 0) {
-    world[lookat_block_idx] = 0;
-    mouse_left = 0;
-  }
-  if (mouse_right > 0 && lookat_block_idx > 0) {
-    world[lookat_block_idx + lookat_closer_offset] = 1;
-    mouse_right = 0;
-  }
-  for (int m = 0; m < 12; m++) {
-    int idx_x = (pos.x + (m >> 0 & 1) * 0.6f - 0.3f) - WORLD_SIZE;
-    int idx_y = (pos.y + ((m >> 2) - 1) * 0.8f + 0.65f) - WORLD_SIZE;
-    int idx_z = (pos.z + (m >> 1 & 1) * 0.6f - 0.3f) - WORLD_SIZE;
-    if ( idx_x >= 0 && idx_x < WORLD_SIZE
-      && idx_y >= 0 && idx_y < WORLD_SIZE
-      && idx_z >= 0 && idx_z < WORLD_SIZE) {
-      world[GET_BLOCK_IDX(idx_x, idx_y, idx_z)] = 0;
-    }
-  }
-
-  render();
-}
 
 void MC_handleKeyboard(int down, int key) {
   if (key < 128)

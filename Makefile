@@ -4,7 +4,6 @@ CFLAGS = -O3
 # CFLAGS += -Wall -Wextra -Wcast-qual -Wcast-align
 # CFLAGS += -Wpedantic
 
-
 minecraft: main.c minecraft.o
 	cc $(CFLAGS) $^ -o $@ -lSDL2 -lm
 
