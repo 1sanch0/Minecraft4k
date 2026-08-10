@@ -1,8 +1,8 @@
 CFLAGS = -O3
-CFLAGS += -g
-CFLAGS += -fsanitize=address -fsanitize=undefined
-CFLAGS += -Wall -Wextra -Wcast-qual -Wcast-align
-CFLAGS += -Wpedantic
+# CFLAGS += -g
+# CFLAGS += -fsanitize=address -fsanitize=undefined
+# CFLAGS += -Wall -Wextra -Wcast-qual -Wcast-align
+# CFLAGS += -Wpedantic
 
 
 minecraft: main.c minecraft.o

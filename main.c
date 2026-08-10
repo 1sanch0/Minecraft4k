@@ -8,7 +8,7 @@
 #define MC_WIDTH 214 
 #define MC_HEIGHT 120
 
-extern uint32_t MC_framebuffer[MC_WIDTH * MC_HEIGHT];
+extern uint32_t *MC_framebuffer;
 
 void MC_init(void);
 void MC_destroy(void);
@@ -44,6 +44,7 @@ int main(int argc, char **argv) {
   bool windowShouldClose = false;
   while (!windowShouldClose) {
     uint64_t ticks = SDL_GetTicks64();
+    // SDL_Delay(10);
     MC_run(ticks - last_ticks);
     last_ticks = ticks;
 
@@ -61,8 +62,6 @@ int main(int argc, char **argv) {
     
 
 
-    int x, y;
-    SDL_GetMouseState(&x, &y);
     while (SDL_PollEvent(&e)) {
       if (e.type == SDL_QUIT)
         windowShouldClose = true;
@@ -90,7 +89,10 @@ int main(int argc, char **argv) {
 
       MC_handleMouse(mouse_down, left_click, right_click);
     }
-    if (windowIsFocused) MC_handleMousePos(x, y);
+    int x = 0, y = 0;
+    if (windowIsFocused)
+      SDL_GetMouseState(&x, &y);
+    MC_handleMousePos(x, y);
   }
 
   MC_destroy();

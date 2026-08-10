@@ -41,6 +41,13 @@ int nextInt(int bound) {
   return val;
 }
 
+typedef struct {
+  union {
+    float arr[3];
+    struct { float x, y, z; };
+  };
+} vec3_t;
+
 #ifndef M_PI
 #define M_PI 3.1415926535897932384626433832
 #endif
@@ -71,14 +78,7 @@ int nextInt(int bound) {
 #define COLOR_LOG2   0xbc9862
 #define COLOR_LEAF   0x50d937
 
-uint32_t MC_framebuffer[MC_WIDTH * MC_HEIGHT];
-
-typedef struct {
-  union {
-    float arr[3];
-    struct { float x, y, z; };
-  };
-} vec3_t;
+uint32_t *MC_framebuffer;
 
 static vec3_t pos = { .x = 96.5f, .y = 65.0f, .z = 96.5f };
 static vec3_t acc = { .x = 00.0f, .y = 00.0f, .z = 00.0f };
@@ -87,16 +87,24 @@ static float yaw = 0.0f, pitch = 0.0f;
 static int mouse_x, mouse_y;
 static int mouse_left, mouse_right;
 
-static uint8_t keyboard[128];
-static int world[WORLD_SIZE*WORLD_SIZE*WORLD_SIZE];
-static int sprites[16*16*16*3];
+static uint8_t *keyboard;
+static int *world;
+static int *sprites;
 
-int block_lookat_idx = -1;
-int lookat_closer_offset = 0;
+#define GET_BLOCK_IDX(idx, idy, idz) (idz * WORLD_SIZE*WORLD_SIZE + idy * WORLD_SIZE + idx)
+#define GET_PIXEL_IDX(u, v, id) (id * 16*16*3 + v * 16 + u)
+
+static int lookat_block_idx = -1;
+static int lookat_closer_offset = 0;
 
 
 void MC_init(void) {
   setSeed(18295169L);
+
+  MC_framebuffer = calloc(MC_WIDTH * MC_HEIGHT, sizeof(uint32_t));
+  keyboard = calloc(128, sizeof(uint8_t));
+  world = calloc(WORLD_SIZE*WORLD_SIZE*WORLD_SIZE, sizeof(int));
+  sprites = calloc(16*16*16*3, sizeof(int));
 
   for (int i = 0; i < WORLD_SIZE*WORLD_SIZE*WORLD_SIZE; i++)
     world[i] = i / WORLD_SIZE % WORLD_SIZE > WORLD_SIZE/2 + nextInt(8) ? nextInt(8) + 1 : 0;
@@ -152,7 +160,7 @@ void MC_init(void) {
           }
         }
         
-        sprites[u + v * 16 + block_id * 256 * 3] = \
+        sprites[GET_PIXEL_IDX(u, v, block_id)] = \
           (color >> 16 & 0xFF) * details / 255 << 16
         | (color >> 8 & 0xFF) * details / 255 << 8
         | (color & 0xFF) * details / 255;
@@ -166,10 +174,111 @@ void MC_init(void) {
 }
 
 void MC_destroy(void) {
+  free(MC_framebuffer);
+  free(keyboard);
+  free(world);
+  free(sprites);
 }
 
 static
-void physics(float dt) {
+void render(void) {
+  int u = 0, v = 0;
+  int lookat_idx_temp = -1;
+  for (int i = 0; i < MC_WIDTH; i++) {
+    float x = (i - (MC_WIDTH / 2)) / 90.0f;
+    for (int j = 0; j < MC_HEIGHT; j++) {
+      float y = (j - (MC_HEIGHT / 2)) / 90.0f;
+
+      float t = 1.0f * cosf(pitch) + y * sinf(pitch);
+      vec3_t ray = {
+        .x = x * cosf(yaw) + t * sinf(yaw),
+        .y = y * cosf(pitch) - 1.0f * sinf(pitch),
+        .z = t * cosf(yaw) - x * sinf(yaw),
+      };
+
+      int px_color = 0;
+      int fog = 255;
+      float d = 20.0;
+      float outline_distance = 5.0f;
+      for (int dim = 0; dim < 3; dim++) {
+        float dim_component = ray.arr[dim];
+
+        float dim_norm = 1.0f / (dim_component < 0.0f ? -dim_component : dim_component);
+        float dx = ray.x * dim_norm;
+        float dy = ray.y * dim_norm;
+        float dz = ray.z * dim_norm;
+
+        float fract = pos.arr[dim] - (float)((int)pos.arr[dim]);
+        if (dim_component > 0.0f)
+          fract = 1.0f - fract;
+
+        float step = dim_norm * fract;
+        vec3_t ray_block = {
+          .x = pos.x + dx * fract,
+          .y = pos.y + dy * fract,
+          .z = pos.z + dz * fract,
+        };
+        if (dim_component < 0.0f)
+          ray_block.arr[dim] -= 1.0f;
+
+        while (step < d) {
+          int idx_x = ray_block.x - WORLD_SIZE;
+          int idx_y = ray_block.y - WORLD_SIZE;
+          int idx_z = ray_block.z - WORLD_SIZE;
+          if ( idx_x < 0 || idx_x >= WORLD_SIZE
+            || idx_y < 0 || idx_y >= WORLD_SIZE
+            || idx_z < 0 || idx_z >= WORLD_SIZE)
+            break;
+          int ray_block_idx = GET_BLOCK_IDX(idx_x, idx_y, idx_z);
+          int ray_block_id = world[ray_block_idx];
+          if (ray_block_id > 0) {
+            u = (int)((ray_block.x + ray_block.z) * 16.0f) & 0xF;
+            v = ((int)(ray_block.y * 16.0f) & 0xF) + 16;
+            if (dim == 1) {
+              u = (int)(ray_block.x * 16.0f) & 0xF;
+              v = (int)(ray_block.z * 16.0f) & 0xF;
+              if (dy < 0.0f)
+                v += 32;
+            }
+
+            int color = 0xFFFFFF;
+
+            if ( ray_block_idx != lookat_block_idx
+              || (u > 0 && v % 16 > 0 && u < 15 && v % 16 < 15))
+              color = sprites[GET_PIXEL_IDX(u, v, ray_block_id)];
+
+            if (step < outline_distance && i == mouse_x / 4 && j == mouse_y / 4) {
+              lookat_idx_temp = ray_block_idx;
+              lookat_closer_offset = 1;
+              if (dim_component > 0.0f)
+                lookat_closer_offset = -1;
+              lookat_closer_offset <<= 6 * dim;
+              outline_distance = step;
+            }
+            
+            if (color > 0) {
+              px_color = color;
+              fog = 255 - (int)(step / 20.0f * 255.0f);
+              fog = fog * (255 - (dim + 2) % 3 * 50) / 255;
+              d = step;
+            }
+          }
+          ray_block.x += dx;
+          ray_block.y += dy;
+          ray_block.z += dz;
+          step += dim_norm;
+        }
+      }
+      int red = (px_color >> 16 & 0xFF) * fog / 255;
+      int green = (px_color >> 8 & 0xFF) * fog / 255;
+      int blue = (px_color & 0xFF) * fog / 255;
+      MC_framebuffer[j * MC_WIDTH + i] = red << 16 | green << 8 | blue;
+    }
+  }
+  lookat_block_idx = lookat_idx_temp;
+}
+
+void MC_run(float dt) {
   if (mouse_x || mouse_y) {
     float dx = (mouse_x - 2*MC_WIDTH) / (float)MC_WIDTH * 2.0f;
     float dy = (mouse_y - 2*MC_HEIGHT) / (float)MC_HEIGHT * 2.0f;
@@ -195,160 +304,54 @@ void physics(float dt) {
   acc.z *= HFRICTION;
   acc.y *= VFRICTION;
 
-  // vec3_t next = { 0.0f };
-
-  // for (int dim = 0; dim < 3; dim++) {
-  //   float next_pos = pos.arr[dim] + acc.arr[dim];
-  // }
-
   for (int dim = 0; dim < 3; dim++) {
     float next_x = pos.x + acc.x * (((dim + 0) % 3) / 2);
     float next_y = pos.y + acc.y * (((dim + 1) % 3) / 2);
     float next_z = pos.z + acc.z * (((dim + 2) % 3) / 2);
-    for (int m = 0; m < 12; m++) { // Iter lower 2 layers
-      int x = (next_x + (m >> 0 & 1) * 0.6f - 0.3f) - 64;
-      int z = (next_z + (m >> 1 & 1) * 0.6f - 0.3f) - 64;
-      int y = (next_y + ((m >> 2) - 1) * 0.8f + 0.65f) - 64;
-      if ( x < 0 || x >= WORLD_SIZE
-        || y < 0 || y >= WORLD_SIZE
-        || z < 0 || z >= WORLD_SIZE
-        || world[x + y * WORLD_SIZE + z * WORLD_SIZE*WORLD_SIZE] > 0) {
-        if (dim != 1) return;
+    for (int m = 0; m < 12; m++) {
+      int idx_x = (next_x + (m >> 0 & 1) * 0.6f - 0.3f) - WORLD_SIZE;
+      int idx_z = (next_z + (m >> 1 & 1) * 0.6f - 0.3f) - WORLD_SIZE;
+      int idx_y = (next_y + ((m >> 2) - 1) * 0.8f + 0.65f) - WORLD_SIZE;
+      if ( idx_x < 0 || idx_x >= WORLD_SIZE
+        || idx_y < 0 || idx_y >= WORLD_SIZE
+        || idx_z < 0 || idx_z >= WORLD_SIZE
+        || world[GET_BLOCK_IDX(idx_x, idx_y, idx_z)] > 0) {
+        if (dim != 1)
+          goto end;
         if (keyboard[' '] > 0 && acc.y > 0.0f) {
           keyboard[' '] = 0;
           acc.y = -JUMP_STRENGH;
-          return;
+          goto end;
         }
         acc.y = 0.0f;
-        return;
+        goto end;
       }
     }
     pos.x = next_x;
     pos.y = next_y;
     pos.z = next_z;
+    end:
   }
-}
 
-static
-void terrain(void) {
-  if (mouse_left > 0 && block_lookat_idx > 0) {
-    world[block_lookat_idx] = 0;
+  if (mouse_left > 0 && lookat_block_idx > 0) {
+    world[lookat_block_idx] = 0;
     mouse_left = 0;
   }
-  if (mouse_right > 0 && block_lookat_idx > 0) {
-    world[block_lookat_idx + lookat_closer_offset] = 1;
+  if (mouse_right > 0 && lookat_block_idx > 0) {
+    world[lookat_block_idx + lookat_closer_offset] = 1;
     mouse_right = 0;
   }
-  for (int m = 0; m < 12; m++) { // Iter lower 2 layers
-    int x = (int)(pos.x + (float)(m >> 0 & 1) * 0.6f - 0.3f) - 64;
-    int y = (int)(pos.y + (float)((m >> 2) - 1) * 0.8f + 0.65f) - 64;
-    int z = (int)(pos.z + (float)(m >> 1 & 1) * 0.6f - 0.3f) - 64;
-    if (x >= 0 && y >= 0 && z >= 0 && x < 64 && y < 64 && z < 64) {
-      world[x + y * 64 + z * 4096] = 0;
+  for (int m = 0; m < 12; m++) {
+    int idx_x = (pos.x + (m >> 0 & 1) * 0.6f - 0.3f) - WORLD_SIZE;
+    int idx_y = (pos.y + ((m >> 2) - 1) * 0.8f + 0.65f) - WORLD_SIZE;
+    int idx_z = (pos.z + (m >> 1 & 1) * 0.6f - 0.3f) - WORLD_SIZE;
+    if ( idx_x >= 0 && idx_x < WORLD_SIZE
+      && idx_y >= 0 && idx_y < WORLD_SIZE
+      && idx_z >= 0 && idx_z < WORLD_SIZE) {
+      world[GET_BLOCK_IDX(idx_x, idx_y, idx_z)] = 0;
     }
   }
-}
 
-static
-void render(void) {
-  int u = 0, v = 0;
-  float i27 = -1.0f;
-  for (int i = 0; i < MC_WIDTH; i++) {
-    float x = (float)(i - (MC_WIDTH / 2)) / 90.0f;
-    for (int j = 0; j < MC_HEIGHT; j++) {
-      float y = (float)(j - (MC_HEIGHT / 2)) / 90.0f;
-
-      float t = 1.0f * cosf(pitch) + y * sinf(pitch);
-      float ray_dir_x = x * cosf(yaw) + t * sinf(yaw);
-      float ray_dir_y = y * cosf(pitch) - 1.0f * sinf(pitch);
-      float ray_dir_z = t * cosf(yaw) - x * sinf(yaw);
-
-      int px_color = 0;
-      int fog = 255;
-      double d = 20.0;
-      float outline_distance = 5.0f;
-      for (int dim = 0; dim < 3; dim++) {
-        float         dim_component = ray_dir_x;
-        if (dim == 1) dim_component = ray_dir_y;
-        if (dim == 2) dim_component = ray_dir_z;
-
-        float dim_norm = 1.0f / (dim_component < 0.0f ? -dim_component : dim_component);
-        float dx = ray_dir_x * dim_norm;
-        float dy = ray_dir_y * dim_norm;
-        float dz = ray_dir_z * dim_norm;
-
-        float         fract = pos.x - (float)((int)pos.x);
-        if (dim == 1) fract = pos.y - (float)((int)pos.y);
-        if (dim == 2) fract = pos.z - (float)((int)pos.z);
-        if (dim_component > 0.0f)
-          fract = 1.0f - fract;
-
-        float step = dim_norm * fract;
-        float look_block_x = pos.x + dx * fract;
-        float look_block_y = pos.y + dy * fract;
-        float look_block_z = pos.z + dz * fract;
-        if (dim_component < 0.0f) {
-          if (dim == 0) look_block_x -= 1.0f;
-          if (dim == 1) look_block_y -= 1.0f;
-          if (dim == 2) look_block_z -= 1.0f;
-        }
-        while ((double)step < d) {
-          int idx_x = (int)look_block_x - 64;
-          int idx_y = (int)look_block_y - 64;
-          int idx_z = (int)look_block_z - 64;
-          if (idx_x < 0 || idx_y < 0 || idx_z < 0 || idx_x >= 64 || idx_y >= 64 || idx_z >= 64)
-            break;
-          int looking_block_idx = idx_x + idx_y * 64 + idx_z * 4096;
-          int block_id = world[looking_block_idx];
-          if (block_id > 0) {
-            u = (int)((look_block_x + look_block_z) * 16.0f) & 0xF;
-            v = ((int)(look_block_y * 16.0f) & 0xF) + 16;
-            if (dim == 1) {
-              u = (int)(look_block_x * 16.0f) & 0xF;
-              v = (int)(look_block_z * 16.0f) & 0xF;
-              if (dy < 0.0f)
-                v += 32;
-            }
-            int color = 0xFFFFFF;
-            if (looking_block_idx != block_lookat_idx || (u > 0 && v % 16 > 0 && u < 15 && v % 16 < 15)) {
-              color = sprites[u + v * 16 + block_id * 256 * 3];
-            }
-            // Draws outline
-            if (step < outline_distance && i == mouse_x / 4 && j == mouse_y / 4) {
-              i27 = looking_block_idx;
-              lookat_closer_offset = 1;
-              if (dim_component > 0.0f)
-                lookat_closer_offset = -1;
-              lookat_closer_offset <<= 6 * dim;
-              outline_distance = step;
-            }
-            if (color > 0) {
-              px_color = color;
-              fog = 255 - (int)(step / 20.0f * 255.0f);
-              fog = fog * (255 - (dim + 2) % 3 * 50) / 255;
-              d = step;
-            }
-          }
-          look_block_x += dx;
-          look_block_y += dy;
-          look_block_z += dz;
-          step += dim_norm;
-        }
-      }
-      int red = (px_color >> 16 & 0xFF) * fog / 255;
-      int green = (px_color >> 8 & 0xFF) * fog / 255;
-      int blue = (px_color & 0xFF) * fog / 255;
-      MC_framebuffer[j * MC_WIDTH + i] = red << 16 | green << 8 | blue;
-    }
-  }
-  block_lookat_idx = (int)i27;
-}
-
-void MC_run(float dt) {
-  // printf("FPS: %f\n", 1000.0/dt);
-  printf("dt: %f\n", dt);
-  physics(dt);
-  terrain();
   render();
 }
 
